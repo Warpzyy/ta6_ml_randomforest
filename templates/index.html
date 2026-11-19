@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prediksi Lagu Hit Spotify</title>
+<style>
+  :root{--bg:#f6f7f4;--card:#fff;--ink:#1d2421;--mute:#66706a;--line:#dfe3dc;--accent:#1a7f4b;--accent2:#0f5a35;--warn:#b4531a}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  main{max-width:880px;margin:0 auto;padding:28px 16px 48px}
+  h1{font-size:1.7rem;margin:0 0 4px}
+  .sub{color:var(--mute);margin:0 0 20px;font-size:.95rem}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 28px}
+  @media(max-width:680px){.grid{grid-template-columns:1fr}}
+  label{display:block;font-size:.9rem;font-weight:600;margin-bottom:2px}
+  .row{display:flex;align-items:center;gap:10px}
+  .val{min-width:64px;text-align:right;font-variant-numeric:tabular-nums;color:var(--accent2);font-weight:600}
+  input[type=range]{flex:1;accent-color:var(--accent)}
+  select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;background:#fff}
+  .full{grid-column:1/-1}
+  .chk{display:flex;align-items:center;gap:8px;font-weight:600}
+  button{margin-top:18px;background:var(--accent);color:#fff;border:0;border-radius:8px;padding:11px 22px;font:inherit;font-weight:600;cursor:pointer}
+  button:hover{background:var(--accent2)} button:disabled{opacity:.6;cursor:wait}
+  #result{margin-top:20px;display:none}
+  .big{font-size:2.4rem;font-weight:700;line-height:1.1}
+  .bar{position:relative;height:12px;background:#e8ebe5;border-radius:6px;margin:12px 0 6px}
+  .fill{height:100%;border-radius:6px;background:var(--accent);width:0;transition:width .4s}
+  .mark{position:absolute;top:-4px;width:2px;height:20px;background:var(--ink)}
+  .badge{display:inline-block;padding:4px 12px;border-radius:999px;font-weight:600;font-size:.9rem}
+  .hit{background:#dff3e7;color:var(--accent2)} .non{background:#f3e8df;color:var(--warn)}
+  .note{color:var(--mute);font-size:.85rem;margin-top:14px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Prediksi Lagu Hit di Spotify</h1>
+  <p class="sub">Random Forest ({{ n_trees }} pohon). Lagu dianggap <b>hit</b> bila popularity &ge; {{ hit_threshold }}. Prediksi hanya berdasar fitur audio dan genre, tidak memperhitungkan popularitas artis atau promosi.</p>
+
+  <form id="f" class="card">
+    <div class="grid">
+      <div class="full">
+        <label for="genre">Genre</label>
+        <select id="genre" name="genre">
+          {% for g in genres %}<option value="{{ g }}" {{ 'selected' if g == default_genre }}>{{ g }}</option>{% endfor %}
+        </select>
+      </div>
+
+      {% for f in unit %}
+      <div>
+        <label for="{{ f }}">{{ f }}</label>
+        <div class="row"><input type="range" id="{{ f }}" name="{{ f }}" min="0" max="1" step="0.01" value="{{ '%.2f'|format(d[f]) }}"><span class="val" data-for="{{ f }}"></span></div>
+      </div>
+      {% endfor %}
+
+      <div>
+        <label for="loudness">loudness (dB)</label>
+        <div class="row"><input type="range" id="loudness" name="loudness" min="{{ rng['loudness'][0]|round(1) }}" max="{{ rng['loudness'][1]|round(1) }}" step="0.5" value="{{ '%.1f'|format(d['loudness']) }}"><span class="val" data-for="loudness"></span></div>
+      </div>
+      <div>
+        <label for="tempo">tempo (BPM)</label>
+        <div class="row"><input type="range" id="tempo" name="tempo" min="40" max="220" step="1" value="{{ d['tempo']|round|int }}"><span class="val" data-for="tempo"></span></div>
+      </div>
+      <div>
+        <label for="duration">durasi (detik)</label>
+        <div class="row"><input type="range" id="duration" min="30" max="600" step="5" value="{{ (d['duration_ms']/1000)|round|int }}"><span class="val" data-for="duration"></span></div>
+      </div>
+      <div>
+        <label for="key">key (0 = C ... 11 = B)</label>
+        <select id="key" name="key">{% for k in range(12) %}<option value="{{ k }}" {{ 'selected' if k == d['key']|round|int }}>{{ k }}</option>{% endfor %}</select>
+      </div>
+      <div>
+        <label for="mode">mode</label>
+        <select id="mode" name="mode"><option value="0">0 = minor</option><option value="1" selected>1 = major</option></select>
+      </div>
+      <div>
+        <label for="time_signature">time_signature</label>
+        <select id="time_signature" name="time_signature">{% for t in [1,3,4,5,6,7] %}<option value="{{ t }}" {{ 'selected' if t == 4 }}>{{ t }}</option>{% endfor %}</select>
+      </div>
+      <div class="full"><label class="chk"><input type="checkbox" id="explicit"> Explicit</label></div>
+    </div>
+    <button type="submit" id="btn">Prediksi</button>
+
+    <div id="result" aria-live="polite">
+      <div class="note" style="margin:0 0 4px">Peluang menjadi hit</div>
+      <div class="big" id="prob">-</div>
+      <div class="bar"><div class="fill" id="fill"></div><div class="mark" id="mark"></div></div>
+      <span class="badge" id="badge"></span>
+      <div class="note">Garis hitam = threshold keputusan model ({{ '%.2f'|format(threshold) }}), dipilih dari prediksi out-of-fold data training untuk memaksimalkan F1 kelas hit.</div>
+    </div>
+  </form>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+function fmt(id, v){ return id==='duration' ? v+' dtk' : (id==='tempo' ? v : Number(v).toFixed(id==='loudness'?1:2)); }
+document.querySelectorAll('input[type=range]').forEach(r=>{
+  const out=document.querySelector(`.val[data-for="${r.id}"]`); const up=()=>out.textContent=fmt(r.id,r.value); r.addEventListener('input',up); up();
+});
+$('#mark').style.left = ({{ threshold }}*100)+'%';
+$('#f').addEventListener('submit', async e=>{
+  e.preventDefault(); const btn=$('#btn'); btn.disabled=true;
+  const p={genre:$('#genre').value, explicit:$('#explicit').checked?1:0, duration_ms:$('#duration').value*1000};
+  ['danceability','energy','speechiness','acousticness','instrumentalness','liveness','valence','loudness','tempo','key','mode','time_signature'].forEach(k=>p[k]=$('#'+k).value);
+  try{
+    const r=await fetch('/predict',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}); const j=await r.json();
+    if(!r.ok) throw new Error(j.error||'Gagal memprediksi');
+    $('#result').style.display='block'; $('#prob').textContent=(j.probability*100).toFixed(1)+'%'; $('#fill').style.width=(j.probability*100)+'%';
+    const b=$('#badge'); b.textContent=j.is_hit?'Diprediksi HIT':'Diprediksi NON-HIT'; b.className='badge '+(j.is_hit?'hit':'non');
+  }catch(err){alert(err.message)} finally{btn.disabled=false}
+});
+</script>
+</body>
+</html>
